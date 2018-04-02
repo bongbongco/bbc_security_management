@@ -83,12 +83,20 @@ AWS_S3_OBJECT_PARAMETERS = {
 
 # STATIC
 # ------------------------
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+STATICFILES_STORAGE = 'config.settings.production.StaticRootS3BotoStorage'
+STATIC_URL = 'https://s3.amazonaws.com/%s/static/' % AWS_STORAGE_BUCKET_NAME
 
 # MEDIA
 # ------------------------------------------------------------------------------
-DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-MEDIA_URL = f'https://s3.amazonaws.com/{AWS_STORAGE_BUCKET_NAME}/'
+
+# region http://stackoverflow.com/questions/10390244/
+from storages.backends.s3boto3 import S3Boto3Storage
+StaticRootS3BotoStorage = lambda: S3Boto3Storage(location='static')  # noqa
+MediaRootS3BotoStorage = lambda: S3Boto3Storage(location='media', file_overwrite=False)  # noqa
+# endregion
+DEFAULT_FILE_STORAGE = 'config.settings.production.MediaRootS3BotoStorage'
+MEDIA_URL = f'https://s3.amazonaws.com/{AWS_STORAGE_BUCKET_NAME}/media/'
 
 # TEMPLATES
 # ------------------------------------------------------------------------------
@@ -135,28 +143,29 @@ ANYMAIL = {
 # ------------------------------------------------------------------------------
 INSTALLED_APPS += ['gunicorn']  # noqa F405
 
-# WhiteNoise
-# ------------------------------------------------------------------------------
-# http://whitenoise.evans.io/en/latest/django.html#enable-whitenoise
-MIDDLEWARE = ['whitenoise.middleware.WhiteNoiseMiddleware'] + MIDDLEWARE  # noqa F405
 
 
-# raven
+# Collectfast
 # ------------------------------------------------------------------------------
-# https://docs.sentry.io/clients/python/integrations/django/
-INSTALLED_APPS += ['raven.contrib.django.raven_compat']  # noqa F405
-MIDDLEWARE = ['raven.contrib.django.raven_compat.middleware.SentryResponseErrorIdMiddleware'] + MIDDLEWARE
+# https://github.com/antonagestam/collectfast#installation
+INSTALLED_APPS = ['collectfast'] + INSTALLED_APPS  # noqa F405
+AWS_PRELOAD_METADATA = True
 
-# Sentry
+# LOGGING
 # ------------------------------------------------------------------------------
-SENTRY_DSN = env('DJANGO_SENTRY_DSN')
-SENTRY_CLIENT = env('DJANGO_SENTRY_CLIENT', default='raven.contrib.django.raven_compat.DjangoClient')
+# See: https://docs.djangoproject.com/en/dev/ref/settings/#logging
+# A sample logging configuration. The only tangible logging
+# performed by this configuration is to send an email to
+# the site admins bon every HTTP 500 error when DEBUG=False.
+# See https://docs.djangoproject.com/en/dev/topics/logging for
+# more details on how to customize your logging configuration.
 LOGGING = {
     'version': 1,
-    'disable_existing_loggers': True,
-    'root': {
-        'level': 'WARNING',
-        'handlers': ['sentry'],
+    'disable_existing_loggers': False,
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse'
+        }
     },
     'formatters': {
         'verbose': {
@@ -165,44 +174,29 @@ LOGGING = {
         },
     },
     'handlers': {
-        'sentry': {
+        'mail_admins': {
             'level': 'ERROR',
-            'class': 'raven.contrib.django.raven_compat.handlers.SentryHandler',
+            'filters': ['require_debug_false'],
+            'class': 'django.utils.log.AdminEmailHandler'
         },
         'console': {
             'level': 'DEBUG',
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose'
-        }
+            'formatter': 'verbose',
+        },
     },
     'loggers': {
-        'django.db.backends': {
+        'django.request': {
+            'handlers': ['mail_admins'],
             'level': 'ERROR',
-            'handlers': ['console'],
-            'propagate': False,
-        },
-        'raven': {
-            'level': 'DEBUG',
-            'handlers': ['console'],
-            'propagate': False,
-        },
-        'sentry.errors': {
-            'level': 'DEBUG',
-            'handlers': ['console'],
-            'propagate': False,
+            'propagate': True
         },
         'django.security.DisallowedHost': {
             'level': 'ERROR',
-            'handlers': ['console', 'sentry'],
-            'propagate': False,
-        },
-    },
-}
-
-SENTRY_CELERY_LOGLEVEL = env.int('DJANGO_SENTRY_LOG_LEVEL', logging.INFO)
-RAVEN_CONFIG = {
-    'CELERY_LOGLEVEL': env.int('DJANGO_SENTRY_LOG_LEVEL', logging.INFO),
-    'DSN': SENTRY_DSN
+            'handlers': ['console', 'mail_admins'],
+            'propagate': True
+        }
+    }
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
